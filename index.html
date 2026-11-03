@@ -105,9 +105,19 @@ function setAdminShell(logged){
  const root=$('adminView');
  let login=$('supabaseAdminLogin');
  if(!login){login=document.createElement('div');login.id='supabaseAdminLogin';login.className='panel';login.innerHTML='<div style="max-width:420px;margin:30px auto"><h2>Acesso administrativo</h2><p class="muted small">Entre com o e-mail e a senha cadastrados no Supabase.</p><div class="field"><label>E-mail</label><input id="adminEmailInput" type="email" autocomplete="username" placeholder="seu@email.com"></div><div class="field"><label>Senha</label><input id="adminPasswordInput" type="password" autocomplete="current-password" placeholder="Sua senha"></div><button id="adminLoginButton" class="btn" style="width:100%">ENTRAR</button><p id="adminLoginMessage" class="muted small" aria-live="polite"></p></div>';root.prepend(login);$('adminLoginButton').onclick=adminSignIn;}
- const content=[...root.children].filter(el=>el!==login);
+ let logout=$('supabaseAdminLogout');
+ if(logged&&!logout){logout=document.createElement('div');logout.id='supabaseAdminLogout';logout.style.cssText='display:flex;justify-content:flex-end;margin:0 0 14px';logout.innerHTML='<button type="button" class="btn secondary" id="adminLogoutButton">SAIR DO PAINEL</button>';root.insertBefore(logout,root.children[1]||null);$('adminLogoutButton').onclick=adminSignOut;}
+ if(!logged&&logout)logout.remove();
+ const content=[...root.children].filter(el=>el!==login&&el!==logout);
  login.classList.toggle('hidden',logged);
  content.forEach(el=>el.classList.toggle('hidden',!logged));
+}
+async function adminSignOut(){
+ await db.auth.signOut();
+ adminSession=null;adminReady=false;bookings=[];
+ setAdminShell(false);
+ originalShowView('client');
+ integrationNotice('Sessão administrativa encerrada.');
 }
 async function adminSignIn(){
  const btn=$('adminLoginButton'),msg=$('adminLoginMessage');btn.disabled=true;msg.textContent='Verificando acesso...';
