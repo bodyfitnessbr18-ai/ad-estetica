@@ -184,7 +184,7 @@ function renderSlots(){
  const schedule=scheduleByWeekday[weekday];
  if(!schedule){$('slotList').innerHTML='<div class="notice" style="grid-column:1/-1">Não há expediente cadastrado para este dia.</div>';selectedSlot=null;return;}
  let [oh,om]=schedule.opens.split(':').map(Number),[ch,cm]=schedule.closes.split(':').map(Number),start=oh*60+om,end=ch*60+cm;
- let duration=selectedItems().reduce((n,s)=>n+s.durationMinutes,0)||60,out=[];
+ let duration=totalBookingDuration(),out=[];
  for(let t=start;t+duration<=end;t+=30){
   let label=String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0');
   let busy=blocked.some(b=>b.date===date&&overlap(t,t+duration,toMinutes(b.start),toMinutes(b.end)));
