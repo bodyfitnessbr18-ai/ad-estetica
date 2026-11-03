@@ -7,7 +7,9 @@ O schema inicial está em `supabase/migrations/001_initial_schema.sql`.
 - O cadastro de expediente é feito por dia da semana, de segunda a sábado.
 - Bloqueios possuem horário inicial e final.
 - A função `create_booking` valida expediente, duração, bloqueios e sobreposição com outros agendamentos.
-- A integração completa do frontend ainda não está concluída. O site não deve ser considerado conectado ao banco até que os testes de leitura, gravação, login e agendamento sejam realizados.
+- O frontend agora carrega o cliente Supabase, lê serviços/expediente/bloqueios, cria agendamentos pela RPC e possui login administrativo com verificação de permissão e saída de sessão.
+- O painel administrativo grava serviços, expediente, bloqueios e status de reservas no banco.
+- A integração foi preparada na branch de desenvolvimento, mas ainda precisa ser testada com a migração aplicada e um usuário administrador autorizado.
 
 ## 1. Confirmar a integração GitHub
 No painel do Supabase, abra **Project Settings → Integrations → GitHub** e confirme:
@@ -18,7 +20,7 @@ No painel do Supabase, abra **Project Settings → Integrations → GitHub** e c
 Não altere a branch de produção nesta etapa. A implementação está sendo preparada em `feature/supabase-database`.
 
 ## 2. Aplicar o schema
-**Não execute o SQL ainda.** Primeiro confirme a integração GitHub e conclua a revisão do frontend. Isso evita aplicar uma estrutura incompleta ou executar a mesma migração duas vezes.
+A migração ainda não foi aplicada. Antes de executar, confirme que o projeto aberto é `ayxgfmzwdkqeidqurbpz` e que a branch de desenvolvimento contém esta versão revisada. Aplique a migração uma única vez pelo fluxo configurado no Supabase. Não execute novamente se ela já constar como aplicada.
 
 Quando a etapa estiver aprovada, a migração deverá ser aplicada uma única vez no projeto correto, seguindo o fluxo de migrações configurado no Supabase.
 
@@ -55,4 +57,4 @@ from public.admin_users a;
 - A criação pública de reservas ocorre pela função `create_booking`, que valida os conflitos no banco.
 
 ## Antes de publicar
-A integração do frontend, o preenchimento dos horários de funcionamento, a configuração do usuário administrador e os testes ponta a ponta ainda precisam ser concluídos. Não mescle esta branch em `main` até validar tudo.
+Ainda é necessário aplicar a migração, cadastrar os horários de segunda a sábado, criar/convidar o usuário administrador, vinculá-lo à tabela `admin_users` e testar leitura, agendamento, conflito de horários, cadastro/edição de serviços, bloqueios e alteração de status. O site não deve ser publicado em produção antes desses testes. Não mescle esta branch em `main` até validar tudo.
