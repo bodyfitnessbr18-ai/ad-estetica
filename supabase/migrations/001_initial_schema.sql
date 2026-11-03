@@ -80,7 +80,6 @@ as $$
     where a.user_id = (select auth.uid())
   );
 $;
-
 -- Permite que o frontend autenticado consulte a própria autorização via RPC.
 revoke all on function public.is_admin() from public;
 grant execute on function public.is_admin() to authenticated;
