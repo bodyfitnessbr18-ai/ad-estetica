@@ -63,7 +63,7 @@ const initialServices=[
  ['Enceramento automotivo','Aplicação de cera para brilho e proteção da pintura.','Pintura e proteção',1],['Enceramento técnico','Preparação e aplicação cuidadosa de cera automotiva.','Pintura e proteção',2],['Polimento comercial','Polimento para renovação visual do brilho.','Pintura e proteção',3],['Polimento técnico','Correção técnica de defeitos na pintura, após avaliação.','Pintura e proteção',6],['Cristalização de pintura','Tratamento de proteção e brilho da pintura.','Pintura e proteção',3],['Vitrificação de pintura','Aplicação de revestimento protetivo, conforme avaliação.','Pintura e proteção',6],
  ['Limpeza de rodas','Limpeza de rodas e áreas acessíveis.','Complementares',1],['Revitalização de pneus','Limpeza e acabamento dos pneus.','Complementares',1],['Limpeza técnica do motor','Limpeza cuidadosa do compartimento do motor.','Complementares',2],['Cristalização de vidros','Tratamento de proteção para vidros.','Complementares',1],['Polimento de faróis','Polimento para melhorar a transparência dos faróis.','Complementares',2],['Higienização de ar-condicionado','Limpeza do sistema de ventilação, conforme escopo.','Complementares',2]
 ].map((s,i)=>({id:'s'+(i+1),name:s[0],description:s[1],category:s[2],durationMinutes:s[3]*60,price:null,active:true}));
-let services=[...initialServices], bookings=[], blocked=[], selectedService=null, selectedSlot=null, currentStep=1, adminCurrent='bookings', opening='08:00',closing='18:00',editingId=null;
+let services=[...initialServices], bookings=[], blocked=[], scheduleByWeekday={}, selectedService=null, selectedSlot=null, currentStep=1, adminCurrent='bookings', opening='08:00',closing='18:00',editingId=null;
 const $=id=>document.getElementById(id); const formatDuration=m=>{const h=Math.floor(m/60),r=m%60;return [h?`${h}h`:'',r?`${r}min`:''].filter(Boolean).join(' ')||'1min';}; const money=v=>v==null?'A definir':v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 function showView(v){$('clientView').classList.toggle('hidden',v!=='client');$('adminView').classList.toggle('hidden',v!=='admin');$('clientNav').classList.toggle('active',v==='client');$('adminNav').classList.toggle('active',v==='admin');if(v==='admin')renderAdmin();}
 function renderServices(){let active=services.filter(s=>s.active);$('serviceList').innerHTML=active.map(s=>`<button class="service ${selectedService===s.id?'selected':''}" onclick="selectService('${s.id}')"><div class="top"><h3>${esc(s.name)}</h3><span class="tag">${esc(s.category)}</span></div><p>${esc(s.description)}</p><div style="display:flex;justify-content:space-between;align-items:center;margin-top:auto"><span class="price">${money(s.price)}</span><span class="muted small">${formatDuration(s.durationMinutes)}</span></div></button>`).join('')||'<div class="empty">Nenhum serviço ativo no momento.</div>';}
@@ -137,8 +137,8 @@ async function loadServicesFromDb(){
 async function loadPublicSchedule(){
  const [hoursRes,blocksRes]=await Promise.all([db.from('business_hours').select('weekday,opens_at,closes_at').order('weekday'),db.from('blocked_slots').select('id,service_date,start_time,end_time,reason')]);
  if(hoursRes.error||blocksRes.error){console.error(hoursRes.error||blocksRes.error);return;}
- const today=hoursRes.data?.find(x=>x.weekday===1);
- if(today){opening=today.opens_at.slice(0,5);closing=today.closes_at.slice(0,5);}
+ scheduleByWeekday=Object.fromEntries((hoursRes.data||[]).map(x=>[x.weekday,{opens:x.opens_at.slice(0,5),closes:x.closes_at.slice(0,5)}]));
+ const monday=scheduleByWeekday[1];if(monday){opening=monday.opens;closing=monday.closes;}
  blocked=(blocksRes.data||[]).map(x=>({id:x.id,date:x.service_date,start:x.start_time.slice(0,5),end:x.end_time.slice(0,5),reason:x.reason}));
 }
 function toMinutes(t){const [h,m]=t.split(':').map(Number);return h*60+m;}
@@ -147,7 +147,9 @@ function renderSlots(){
  const day=new Date(date+'T12:00:00').getDay();
  const weekday=day===0?7:day;
  if(day===0){$('slotList').innerHTML='<div class="notice" style="grid-column:1/-1">Não há atendimento aos domingos. Escolha outro dia.</div>';selectedSlot=null;return;}
- let [oh,om]=opening.split(':').map(Number),[ch,cm]=closing.split(':').map(Number),start=oh*60+om,end=ch*60+cm;
+ const schedule=scheduleByWeekday[weekday];
+ if(!schedule){$('slotList').innerHTML='<div class="notice" style="grid-column:1/-1">Não há expediente cadastrado para este dia.</div>';selectedSlot=null;return;}
+ let [oh,om]=schedule.opens.split(':').map(Number),[ch,cm]=schedule.closes.split(':').map(Number),start=oh*60+om,end=ch*60+cm;
  let s=services.find(x=>x.id===selectedService),duration=s?.durationMinutes||60,out=[];
  for(let t=start;t+duration<=end;t+=30){
   let label=String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0');
@@ -182,7 +184,8 @@ async function loadAdminData(){
  services=(servicesRes.data||[]).map(x=>({id:x.id,name:x.name,description:x.description,category:x.category,price:x.price==null?null:Number(x.price),durationMinutes:x.duration_minutes,active:x.active}));
  bookings=(bookingsRes.data||[]).map(x=>({id:x.id,service:x.service_name,price:x.price,name:x.customer_name,phone:x.customer_phone,street:x.street,number:x.street_number,district:x.district,city:x.city,date:x.service_date,start:x.start_time.slice(0,5),status:x.status}));
  blocked=(blocksRes.data||[]).map(x=>({id:x.id,date:x.service_date,start:x.start_time.slice(0,5),end:x.end_time.slice(0,5),reason:x.reason}));
- const monday=hoursRes.data.find(x=>x.weekday===1);if(monday){opening=monday.opens_at.slice(0,5);closing=monday.closes_at.slice(0,5);}
+ scheduleByWeekday=Object.fromEntries((hoursRes.data||[]).map(x=>[x.weekday,{opens:x.opens_at.slice(0,5),closes:x.closes_at.slice(0,5)}]));
+ const monday=scheduleByWeekday[1];if(monday){opening=monday.opens;closing=monday.closes;}
  $('openTime').value=opening;$('closeTime').value=closing;
  renderServices();
 }
@@ -207,7 +210,7 @@ saveHours=async function(){
  const rows=[1,2,3,4,5,6].map(weekday=>({weekday,opens_at:opens,closes_at:closes}));
  const {error}=await db.from('business_hours').upsert(rows,{onConflict:'weekday'});
  if(error){alert('Não foi possível salvar o expediente: '+error.message);return;}
- opening=opens;closing=closes;alert('Horário de funcionamento salvo no banco.');renderSlots();
+ opening=opens;closing=closes;scheduleByWeekday=Object.fromEntries([1,2,3,4,5,6].map(weekday=>[weekday,{opens,closes}]));alert('Horário de funcionamento salvo no banco.');renderSlots();
 };
 blockSlot=async function(){
  const date=$('blockDate').value,start=$('blockTime').value;
