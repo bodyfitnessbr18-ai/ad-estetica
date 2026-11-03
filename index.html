@@ -92,4 +92,133 @@ function saveHours(){opening=$('openTime').value;closing=$('closeTime').value;if
 function blockSlot(){let date=$('blockDate').value,time=$('blockTime').value;if(!date||!time){alert('Informe data e horário.');return;}if(blocked.some(b=>b.date===date&&b.time===time)){alert('Esse horário já está bloqueado.');return;}blocked.push({date,time});renderAdmin();renderSlots();}
 function unblockSlot(date,time){blocked=blocked.filter(b=>!(b.date===date&&b.time===time));renderAdmin();renderSlots();}
 renderServices();$('bookingDate').min=todayISO();
+
+/* ===== Integração Supabase — AD Estética Automotiva ===== */
+const SUPABASE_URL='https://ayxgfmzwdkqeidqurbpz.supabase.co';
+const SUPABASE_ANON_KEY='sb_publishable_COB6xOeYIk1HRoIQLTPiBA_VMSFJHgT';
+const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+let adminSession=null, adminReady=false;
+const originalShowView=showView;
+function integrationNotice(message){let n=$('dbNotice');if(!n){n=document.createElement('div');n.id='dbNotice';n.className='notice';n.style.margin='12px 0';$('clientView').prepend(n);}n.textContent=message;}
+function setAdminShell(logged){
+ const root=$('adminView');
+ let login=$('supabaseAdminLogin');
+ if(!login){login=document.createElement('div');login.id='supabaseAdminLogin';login.className='panel';login.innerHTML='<div style="max-width:420px;margin:30px auto"><h2>Acesso administrativo</h2><p class="muted small">Entre com o e-mail e a senha cadastrados no Supabase.</p><div class="field"><label>E-mail</label><input id="adminEmailInput" type="email" autocomplete="username" placeholder="seu@email.com"></div><div class="field"><label>Senha</label><input id="adminPasswordInput" type="password" autocomplete="current-password" placeholder="Sua senha"></div><button id="adminLoginButton" class="btn" style="width:100%">ENTRAR</button><p id="adminLoginMessage" class="muted small" aria-live="polite"></p></div>';root.prepend(login);$('adminLoginButton').onclick=adminSignIn;}
+ const content=[...root.children].filter(el=>el!==login);
+ login.classList.toggle('hidden',logged);
+ content.forEach(el=>el.classList.toggle('hidden',!logged));
+}
+async function adminSignIn(){
+ const btn=$('adminLoginButton'),msg=$('adminLoginMessage');btn.disabled=true;msg.textContent='Verificando acesso...';
+ const {data,error}=await db.auth.signInWithPassword({email:$('adminEmailInput').value.trim(),password:$('adminPasswordInput').value});
+ if(error){msg.textContent='Não foi possível entrar: '+error.message;btn.disabled=false;return;}
+ const check=await db.rpc('is_admin');
+ if(check.error||check.data!==true){await db.auth.signOut();msg.textContent='Este usuário ainda não tem permissão de administrador.';btn.disabled=false;return;}
+ adminSession=data.session;adminReady=true;setAdminShell(true);await loadAdminData();renderAdmin();
+}
+async function loadServicesFromDb(){
+ const {data,error}=await db.from('services').select('id,name,description,category,price,duration_minutes,active').eq('active',true).order('name');
+ if(error){integrationNotice('Não foi possível carregar os serviços. Verifique a configuração do banco.');console.error(error);return;}
+ services=(data||[]).map(x=>({id:x.id,name:x.name,description:x.description,category:x.category,price:x.price==null?null:Number(x.price),durationMinutes:x.duration_minutes,active:x.active}));
+ if(selectedService&&!services.some(x=>x.id===selectedService))selectedService=null;
+ renderServices();if(selectedService)selectService(selectedService);
+}
+async function loadPublicSchedule(){
+ const [hoursRes,blocksRes]=await Promise.all([db.from('business_hours').select('weekday,opens_at,closes_at').order('weekday'),db.from('blocked_slots').select('id,service_date,start_time,end_time,reason')]);
+ if(hoursRes.error||blocksRes.error){console.error(hoursRes.error||blocksRes.error);return;}
+ const today=hoursRes.data?.find(x=>x.weekday===1);
+ if(today){opening=today.opens_at.slice(0,5);closing=today.closes_at.slice(0,5);}
+ blocked=(blocksRes.data||[]).map(x=>({id:x.id,date:x.service_date,start:x.start_time.slice(0,5),end:x.end_time.slice(0,5),reason:x.reason}));
+}
+function toMinutes(t){const [h,m]=t.split(':').map(Number);return h*60+m;}
+function renderSlots(){
+ const date=$('bookingDate').value;if(!date)return;
+ const day=new Date(date+'T12:00:00').getDay();
+ const weekday=day===0?7:day;
+ if(day===0){$('slotList').innerHTML='<div class="notice" style="grid-column:1/-1">Não há atendimento aos domingos. Escolha outro dia.</div>';selectedSlot=null;return;}
+ let [oh,om]=opening.split(':').map(Number),[ch,cm]=closing.split(':').map(Number),start=oh*60+om,end=ch*60+cm;
+ let s=services.find(x=>x.id===selectedService),duration=s?.durationMinutes||60,out=[];
+ for(let t=start;t+duration<=end;t+=30){
+  let label=String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0');
+  let busy=blocked.some(b=>b.date===date&&overlap(t,t+duration,toMinutes(b.start),toMinutes(b.end)));
+  out.push('<button class="slot '+(selectedSlot===label?'chosen':'')+'" '+(busy?'disabled':'')+' onclick="chooseSlot(\''+label+'\')">'+label+(busy?' · bloqueado':'')+'</button>');
+ }
+ $('slotList').innerHTML=out.join('')||'<div class="notice" style="grid-column:1/-1">Não há horários disponíveis para a duração deste serviço.</div>';
+}
+async function confirmBooking(){
+ if(!selectedSlot){alert('Escolha um horário disponível.');return;}
+ if(!validateDetails())return;
+ const s=services.find(x=>x.id===selectedService);if(!s){alert('Escolha um serviço ativo.');return;}
+ const args={p_service_id:s.id,p_customer_name:$('customerName').value.trim(),p_customer_phone:$('customerPhone').value.trim(),p_postal_code:$('cep').value.trim(),p_property_type:$('propertyType').value,p_street:$('street').value.trim(),p_street_number:$('number').value.trim(),p_complement:$('complement').value.trim(),p_district:$('district').value.trim(),p_city:$('city').value.trim(),p_state:$('state').value.trim(),p_reference:$('reference').value.trim(),p_service_date:$('bookingDate').value,p_start_time:selectedSlot};
+ const button=document.querySelector('#scheduleStep button[onclick="confirmBooking()"]');if(button){button.disabled=true;button.textContent='ENVIANDO...';}
+ const {data,error}=await db.rpc('create_booking',args);
+ if(button){button.disabled=false;button.textContent='CONFIRMAR AGENDAMENTO';}
+ if(error){alert(error.message.includes('reservado')||error.message.includes('bloqueado')?error.message:'Não foi possível registrar o agendamento: '+error.message);await loadPublicSchedule();renderSlots();return;}
+ const [h,m]=selectedSlot.split(':').map(Number);
+ const b={id:data,service:s.name,price:s.price,name:args.p_customer_name,phone:args.p_customer_phone,cep:args.p_postal_code,property:args.p_property_type,street:args.p_street,number:args.p_street_number,complement:args.p_complement,district:args.p_district,city:args.p_city,state:args.p_state,reference:args.p_reference,date:args.p_service_date,start:selectedSlot,startMin:h*60+m,endMin:h*60+m+s.durationMinutes,durationMinutes:s.durationMinutes,status:'Pendente'};
+ $('successSummary').innerHTML='<b>'+esc(b.service)+'</b><br>'+esc(b.date)+' às '+esc(b.start)+'<br>'+esc(b.name)+' · '+esc(b.phone)+'<br>'+esc(b.street)+', '+esc(b.number)+' '+esc(b.complement)+' · '+esc(b.district)+'<br>'+esc(b.city)+' / '+esc(b.state)+' · CEP '+esc(b.cep)+'<br><b>Valor: '+money(b.price)+'</b>';
+ const msg='Olá! Gostaria de solicitar um agendamento na AD Estética Automotiva.%0A%0AServiço: '+encodeURIComponent(b.service)+'%0AData: '+encodeURIComponent(b.date)+'%0AHorário: '+encodeURIComponent(b.start)+'%0ADuração: '+formatDuration(b.durationMinutes)+'%0AValor: '+encodeURIComponent(money(b.price))+'%0A%0ANome: '+encodeURIComponent(b.name)+'%0ATelefone: '+encodeURIComponent(b.phone)+'%0AEndereço: '+encodeURIComponent(b.street+', '+b.number+' '+b.complement+', '+b.district+', '+b.city+'/'+b.state)+'%0ACEP: '+encodeURIComponent(b.cep);
+ $('whatsappButton').onclick=()=>window.open('https://wa.me/5511947971835?text='+msg,'_blank');goStep(4);
+}
+async function loadAdminData(){
+ const [servicesRes,bookingsRes,hoursRes,blocksRes]=await Promise.all([
+  db.from('services').select('id,name,description,category,price,duration_minutes,active').order('name'),
+  db.from('bookings').select('*').order('service_date',{ascending:false}).order('start_time',{ascending:false}),
+  db.from('business_hours').select('weekday,opens_at,closes_at').order('weekday'),
+  db.from('blocked_slots').select('id,service_date,start_time,end_time,reason').order('service_date')
+ ]);
+ for(const r of [servicesRes,bookingsRes,hoursRes,blocksRes])if(r.error){console.error(r.error);alert('Erro ao carregar dados administrativos: '+r.error.message);return;}
+ services=(servicesRes.data||[]).map(x=>({id:x.id,name:x.name,description:x.description,category:x.category,price:x.price==null?null:Number(x.price),durationMinutes:x.duration_minutes,active:x.active}));
+ bookings=(bookingsRes.data||[]).map(x=>({id:x.id,service:x.service_name,price:x.price,name:x.customer_name,phone:x.customer_phone,street:x.street,number:x.street_number,district:x.district,city:x.city,date:x.service_date,start:x.start_time.slice(0,5),status:x.status}));
+ blocked=(blocksRes.data||[]).map(x=>({id:x.id,date:x.service_date,start:x.start_time.slice(0,5),end:x.end_time.slice(0,5),reason:x.reason}));
+ const monday=hoursRes.data.find(x=>x.weekday===1);if(monday){opening=monday.opens_at.slice(0,5);closing=monday.closes_at.slice(0,5);}
+ $('openTime').value=opening;$('closeTime').value=closing;
+ renderServices();
+}
+const localRenderAdmin=renderAdmin;
+renderAdmin=function(){if(!adminReady)return;localRenderAdmin();$('blockedList').innerHTML=blocked.length?blocked.map(b=>esc(b.date)+' · '+esc(b.start)+'–'+esc(b.end)+' <button class="mini danger" onclick="unblockSlot(\''+b.id+'\')">Remover</button>').join('<br>'):'Nenhum horário bloqueado.';};
+showView=function(v){if(v!=='admin'){originalShowView(v);return;}originalShowView('admin');setAdminShell(!!adminReady);if(adminReady)loadAdminData().then(renderAdmin);};
+setStatus=async function(id,status){const {error}=await db.from('bookings').update({status}).eq('id',id);if(error){alert('Não foi possível atualizar: '+error.message);return;}await loadAdminData();renderAdmin();};
+saveService=async function(){
+ const name=$('editName').value.trim(),price=$('editPrice').value===''?null:Number($('editPrice').value);
+ const hours=Number($('editDurationHours').value)||0,minutes=Number($('editDurationMinutes').value)||0,duration_minutes=hours*60+minutes;
+ if(name.length<2){alert('Informe o nome do serviço.');return;}
+ if(!Number.isFinite(price)&&price!==null){alert('Informe um preço válido.');return;}
+ if(duration_minutes<1||duration_minutes>1440){alert('Informe uma duração entre 1 minuto e 24 horas.');return;}
+ const data={name,description:$('editDescription').value.trim(),price,duration_minutes};
+ const q=editingId?db.from('services').update(data).eq('id',editingId):db.from('services').insert({...data,category:'Personalizados',active:true});
+ const {error}=await q;if(error){alert('Não foi possível salvar o serviço: '+error.message);return;}
+ closeServiceModal();await loadAdminData();renderAdmin();
+};
+toggleService=async function(id){const s=services.find(x=>x.id===id);if(!s)return;const {error}=await db.from('services').update({active:!s.active}).eq('id',id);if(error){alert('Não foi possível alterar o serviço: '+error.message);return;}await loadAdminData();renderAdmin();};
+saveHours=async function(){
+ const opens=$('openTime').value,closes=$('closeTime').value;if(!opens||!closes||opens>=closes){alert('Informe um intervalo válido.');return;}
+ const rows=[1,2,3,4,5,6].map(weekday=>({weekday,opens_at:opens,closes_at:closes}));
+ const {error}=await db.from('business_hours').upsert(rows,{onConflict:'weekday'});
+ if(error){alert('Não foi possível salvar o expediente: '+error.message);return;}
+ opening=opens;closing=closes;alert('Horário de funcionamento salvo no banco.');renderSlots();
+};
+blockSlot=async function(){
+ const date=$('blockDate').value,start=$('blockTime').value;
+ if(!date||!start){alert('Informe data e horário.');return;}
+ const endMin=toMinutes(start)+60;if(endMin>1439){alert('O bloqueio precisa terminar no mesmo dia.');return;}
+ const end=String(Math.floor(endMin/60)).padStart(2,'0')+':'+String(endMin%60).padStart(2,'0');
+ const {error}=await db.from('blocked_slots').insert({service_date:date,start_time:start,end_time:end,reason:'Bloqueio administrativo'});
+ if(error){alert('Não foi possível bloquear: '+error.message);return;}
+ await loadAdminData();renderAdmin();renderSlots();
+};
+unblockSlot=async function(id){const {error}=await db.from('blocked_slots').delete().eq('id',id);if(error){alert('Não foi possível remover o bloqueio: '+error.message);return;}await loadAdminData();renderAdmin();renderSlots();};
+async function initializeSupabaseApp(){
+ try{
+  const {data}=await db.auth.getSession();adminSession=data.session;
+  if(adminSession){const check=await db.rpc('is_admin');adminReady=!check.error&&check.data===true;if(!adminReady)await db.auth.signOut();}
+  await loadServicesFromDb();await loadPublicSchedule();
+  if(adminReady){setAdminShell(true);await loadAdminData();}else setAdminShell(false);
+  if(!services.length)integrationNotice('O banco está conectado, mas ainda não há serviços cadastrados. Entre no painel administrativo para cadastrar os serviços.');
+  else integrationNotice('Agendamento conectado ao banco de dados.');
+ }catch(e){console.error(e);integrationNotice('Não foi possível conectar ao banco. Confira a configuração do Supabase.');}
+}
+db.auth.onAuthStateChange(async(_event,session)=>{adminSession=session;if(!session){adminReady=false;setAdminShell(false);}else{const check=await db.rpc('is_admin');adminReady=!check.error&&check.data===true;setAdminShell(adminReady);if(adminReady){await loadAdminData();renderAdmin();}}});
+initializeSupabaseApp();
+
 </script></body></html>
