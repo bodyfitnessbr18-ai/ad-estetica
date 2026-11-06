@@ -216,7 +216,7 @@ async function loadAdminData(){
   db.from('blocked_slots').select('id,service_date,start_time,end_time,reason').order('service_date')
  ]);
  for(const r of [servicesRes,bookingsRes,hoursRes,blocksRes])if(r.error){console.error(r.error);alert('Erro ao carregar dados administrativos: '+r.error.message);return;}
- services=(servicesRes.data||[]).map(x=>({id:x.id,name:x.name,description:x.description,category:x.category,price:x.price==null?null:Number(x.price),durationMinutes:x.duration_minutes,active:x.active}));
+ services=(servicesRes.data||[]).map(x=>({id:x.id,name:x.name,description:x.description,category:x.category,price:x.price==null?null:Number(x.price),durationMinutes:x.duration_minutes,active:x.active,bumpEligible:!!x.bump_eligible}));
  bookings=(bookingsRes.data||[]).map(x=>({id:x.id,service:x.service_name,price:x.price,name:x.customer_name,phone:x.customer_phone,cep:x.postal_code,street:x.street,number:x.street_number,complement:x.complement,district:x.district,city:x.city,state:x.state,reference:x.reference,date:x.service_date,start:x.start_time.slice(0,5),status:x.status}));
  blocked=(blocksRes.data||[]).map(x=>({id:x.id,date:x.service_date,start:x.start_time.slice(0,5),end:x.end_time.slice(0,5),reason:x.reason}));
  scheduleByWeekday=Object.fromEntries((hoursRes.data||[]).map(x=>[x.weekday,{opens:x.opens_at.slice(0,5),closes:x.closes_at.slice(0,5)}]));
