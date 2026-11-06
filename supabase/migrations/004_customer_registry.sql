@@ -26,6 +26,33 @@ create table if not exists public.customers (
 alter table public.bookings
   add column if not exists customer_id uuid references public.customers(id) on delete set null;
 
+
+-- Migra o histórico existente para a nova carteira de clientes, sem apagar agendamentos.
+insert into public.customers (
+  full_name, phone, phone_normalized, postal_code, property_type,
+  street, street_number, complement, district, city, state, reference,
+  first_booking_at, last_booking_at
+)
+select distinct on (regexp_replace(coalesce(customer_phone,''), '[^0-9]', '', 'g'))
+  customer_name,
+  customer_phone,
+  regexp_replace(coalesce(customer_phone,''), '[^0-9]', '', 'g'),
+  postal_code, property_type, street, street_number, complement, district,
+  city, state, reference,
+  min(created_at) over (partition by regexp_replace(coalesce(customer_phone,''), '[^0-9]', '', 'g')),
+  max(created_at) over (partition by regexp_replace(coalesce(customer_phone,''), '[^0-9]', '', 'g'))
+from public.bookings
+where length(regexp_replace(coalesce(customer_phone,''), '[^0-9]', '', 'g')) between 8 and 15
+order by regexp_replace(coalesce(customer_phone,''), '[^0-9]', '', 'g'), created_at desc
+on conflict (phone_normalized) do nothing;
+
+update public.bookings b
+set customer_id = c.id
+from public.customers c
+where c.phone_normalized = regexp_replace(coalesce(b.customer_phone,''), '[^0-9]', '', 'g')
+  and b.customer_id is null;
+
+
 create index if not exists customers_name_idx on public.customers (full_name);
 create index if not exists customers_phone_idx on public.customers (phone_normalized);
 create index if not exists bookings_customer_id_idx on public.bookings (customer_id);
@@ -34,6 +61,8 @@ alter table public.customers enable row level security;
 drop policy if exists "Admins manage customers" on public.customers;
 create policy "Admins manage customers" on public.customers
   for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+drop function if exists public.create_booking(uuid[],text,text,text,text,text,text,text,text,text,text,text,date,time,uuid);
 
 create or replace function public.create_booking(
   p_service_ids uuid[],
