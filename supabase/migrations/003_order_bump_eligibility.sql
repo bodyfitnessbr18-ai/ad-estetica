@@ -1,4 +1,20 @@
--- AD Estética Automotiva: controle administrativo de elegibilidade para order bump
+-- AD Estética Automotiva: regras de combinação para order bump
+-- Regras direcionais: quando um serviço principal é escolhido, quais complementos podem ser oferecidos.
+create table if not exists public.service_bump_rules (
+  source_service_id uuid not null references public.services(id) on delete cascade,
+  bump_service_id uuid not null references public.services(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (source_service_id, bump_service_id),
+  check (source_service_id <> bump_service_id)
+);
+alter table public.service_bump_rules enable row level security;
+drop policy if exists "Public reads service bump rules" on public.service_bump_rules;
+create policy "Public reads service bump rules" on public.service_bump_rules
+  for select to anon, authenticated using (true);
+drop policy if exists "Admins manage service bump rules" on public.service_bump_rules;
+create policy "Admins manage service bump rules" on public.service_bump_rules
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
 -- Por padrão, nenhum serviço novo entra automaticamente na oferta.
 alter table public.services
   add column if not exists bump_eligible boolean not null default false;
@@ -69,8 +85,15 @@ begin
     end if;
     select * into v_bump from public.services
      where id = p_bump_service_id and active = true;
-    if not found or v_bump.price is null or not v_bump.bump_eligible then
-      raise exception 'A oferta adicional não está habilitada ou não está disponível.';
+    if not found or v_bump.price is null then
+      raise exception 'A oferta adicional não está disponível.';
+    end if;
+    if not exists (
+      select 1 from public.service_bump_rules r
+       where r.bump_service_id = p_bump_service_id
+         and r.source_service_id = any(p_service_ids)
+    ) then
+      raise exception 'Esta oferta adicional não está permitida para os serviços escolhidos.';
     end if;
     v_duration := v_duration + v_bump.duration_minutes;
     if v_total_price is not null then
