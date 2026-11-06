@@ -2,6 +2,8 @@
 alter table public.bookings add column if not exists vehicle_make text;
 alter table public.bookings add column if not exists vehicle_model text;
 
+drop function if exists public.create_booking(uuid[],text,text,text,text,text,text,text,text,text,text,text,date,time,uuid,text);
+
 create or replace function public.create_booking(
   p_service_ids uuid[],
   p_customer_name text,
