@@ -224,7 +224,7 @@ async function loadAdminData(){
  scheduleByWeekday=Object.fromEntries((hoursRes.data||[]).map(x=>[x.weekday,{opens:x.opens_at.slice(0,5),closes:x.closes_at.slice(0,5)}]));
  const monday=scheduleByWeekday[1];if(monday){opening=monday.opens;closing=monday.closes;}
  [1,2,3,4,5,6].forEach(day=>{const h=scheduleByWeekday[day]||{opens:day===6?'09:00':'08:00',closes:day===6?'16:00':'19:00'};$('openTime'+day).value=h.opens;$('closeTime'+day).value=h.closes;});
- renderServices();
+ renderServices();renderCustomers();
 }
 function renderCustomers(){
  const host=$('customerTable');if(!host)return;
